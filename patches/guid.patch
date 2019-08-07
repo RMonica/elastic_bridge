@@ -1,0 +1,285 @@
+diff --git a/Core/src/ElasticFusion.h b/Core/src/ElasticFusion.h
+index 7a2b0fc..6876281 100644
+--- a/Core/src/ElasticFusion.h
++++ b/Core/src/ElasticFusion.h
+@@ -37,6 +37,10 @@
+ #include <iomanip>
+ #include <pangolin/gl/glcuda.h>
+ 
++#ifndef ELASTIC_BRIDGE_EXTENSION_GUID
++  #define ELASTIC_BRIDGE_EXTENSION_GUID 1
++#endif
++
+ class ElasticFusion
+ {
+     public:
+diff --git a/Core/src/GlobalModel.cpp b/Core/src/GlobalModel.cpp
+index 92e0b21..bb2419f 100644
+--- a/Core/src/GlobalModel.cpp
++++ b/Core/src/GlobalModel.cpp
+@@ -23,6 +23,8 @@ const int GlobalModel::MAX_VERTICES = GlobalModel::TEXTURE_DIMENSION * GlobalMod
+ const int GlobalModel::NODE_TEXTURE_DIMENSION = 16384;
+ const int GlobalModel::MAX_NODES = GlobalModel::NODE_TEXTURE_DIMENSION / 16; //16 floats per node
+ 
++#define DISPOSED_GUIDS_SIZE (1024)
++
+ GlobalModel::GlobalModel()
+  : target(0),
+    renderSource(1),
+@@ -38,7 +40,8 @@ GlobalModel::GlobalModel()
+    updateMapVertsConfs(TEXTURE_DIMENSION, TEXTURE_DIMENSION, GL_RGBA32F, GL_LUMINANCE, GL_FLOAT),
+    updateMapColorsTime(TEXTURE_DIMENSION, TEXTURE_DIMENSION, GL_RGBA32F, GL_LUMINANCE, GL_FLOAT),
+    updateMapNormsRadii(TEXTURE_DIMENSION, TEXTURE_DIMENSION, GL_RGBA32F, GL_LUMINANCE, GL_FLOAT),
+-   deformationNodes(NODE_TEXTURE_DIMENSION, 1, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT)
++   deformationNodes(NODE_TEXTURE_DIMENSION, 1, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT),
++   disposed_guid_store(DISPOSED_GUIDS_SIZE, DISPOSED_GUIDS_SIZE, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT)
+ {
+     vbos = new std::pair<GLuint, GLuint>[2];
+ 
+@@ -177,6 +180,22 @@ GlobalModel::GlobalModel()
+     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+ 
+     initProgram->Unbind();
++
++    glGenBuffers(1, &atomicGuidBuffer);
++    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomicGuidBuffer);
++    glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint) * 2, NULL, GL_DYNAMIC_DRAW);
++    {
++      const GLuint U_ONE = 1;
++      const GLuint U_ZERO = 0;
++      glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &U_ONE);
++      glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), sizeof(GLuint), &U_ZERO);
++    }
++    glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
++
++    glBindTexture(GL_TEXTURE_2D,disposed_guid_store.texture->tid);
++    std::vector<GLuint> image(DISPOSED_GUIDS_SIZE * DISPOSED_GUIDS_SIZE,5); // initialize to some value (5)
++    glTexImage2D(GL_TEXTURE_2D,0,GL_R32F,DISPOSED_GUIDS_SIZE,DISPOSED_GUIDS_SIZE,0,GL_RED,GL_FLOAT,image.data());
++    glBindTexture(GL_TEXTURE_2D,0);
+ }
+ 
+ GlobalModel::~GlobalModel()
+@@ -191,6 +210,8 @@ GlobalModel::~GlobalModel()
+ 
+     glDeleteBuffers(1, &uvo);
+ 
++    glDeleteBuffers(1, &atomicGuidBuffer);
++
+     glDeleteTransformFeedbacks(1, &newUnstableFid);
+     glDeleteBuffers(1, &newUnstableVbo);
+ 
+@@ -204,6 +225,8 @@ void GlobalModel::initialise(const FeedbackBuffer & rawFeedback,
+ 
+     glBindBuffer(GL_ARRAY_BUFFER, rawFeedback.vbo);
+ 
++    SetGuidSystem(initProgram);
++
+     glEnableVertexAttribArray(0);
+     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, Vertex::SIZE, 0);
+ 
+@@ -242,6 +265,8 @@ void GlobalModel::initialise(const FeedbackBuffer & rawFeedback,
+     glBindBuffer(GL_ARRAY_BUFFER, 0);
+     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+ 
++    UnsetGuidSystem(initProgram);
++
+     initProgram->Unbind();
+ 
+     glFinish();
+@@ -306,6 +331,29 @@ const std::pair<GLuint, GLuint> & GlobalModel::model()
+     return vbos[target];
+ }
+ 
++void GlobalModel::SetGuidSystem(std::shared_ptr<Shader> program)
++{
++  CheckGlDieOnError();
++
++  glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, atomicGuidBuffer);
++
++  glBindImageTexture(7,disposed_guid_store.texture->tid,0,GL_FALSE,0,GL_READ_WRITE,GL_R32F);
++  program->setUniform(Uniform(std::string("disposed_guid_store_size"), int(DISPOSED_GUIDS_SIZE)));
++  program->setUniform(Uniform(std::string("disposed_guid_store"), int(7)));
++
++  CheckGlDieOnError();
++}
++
++void GlobalModel::UnsetGuidSystem(std::shared_ptr<Shader> /*program*/)
++{
++  CheckGlDieOnError();
++
++  glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 1, 0);
++  glBindImageTexture(7,0,0,GL_FALSE,0,GL_READ_WRITE,GL_R32F);
++
++  CheckGlDieOnError();
++}
++
+ void GlobalModel::fuse(const Eigen::Matrix4f & pose,
+                        const int & time,
+                        GPUTexture * rgb,
+@@ -354,6 +402,8 @@ void GlobalModel::fuse(const Eigen::Matrix4f & pose,
+     dataProgram->setUniform(Uniform("pose", pose));
+     dataProgram->setUniform(Uniform("maxDepth", depthCutoff));
+ 
++    SetGuidSystem(dataProgram);
++
+     glEnableVertexAttribArray(0);
+     glBindBuffer(GL_ARRAY_BUFFER, uvo);
+     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+@@ -399,6 +449,8 @@ void GlobalModel::fuse(const Eigen::Matrix4f & pose,
+     glBindBuffer(GL_ARRAY_BUFFER, 0);
+     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+ 
++    UnsetGuidSystem(dataProgram);
++
+     dataProgram->Unbind();
+ 
+     glPopAttrib();
+@@ -518,6 +570,8 @@ void GlobalModel::clean(const Eigen::Matrix4f & pose,
+     unstableProgram->setUniform(Uniform("cols", (float)Resolution::getInstance().cols()));
+     unstableProgram->setUniform(Uniform("rows", (float)Resolution::getInstance().rows()));
+ 
++    SetGuidSystem(unstableProgram);
++
+     glBindBuffer(GL_ARRAY_BUFFER, vbos[target].first);
+ 
+     glEnableVertexAttribArray(0);
+@@ -589,6 +643,8 @@ void GlobalModel::clean(const Eigen::Matrix4f & pose,
+     glBindBuffer(GL_ARRAY_BUFFER, 0);
+     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, 0);
+ 
++    UnsetGuidSystem(unstableProgram);
++
+     unstableProgram->Unbind();
+ 
+     std::swap(target, renderSource);
+@@ -602,6 +658,34 @@ unsigned int GlobalModel::lastCount()
+     return count;
+ }
+ 
++unsigned int GlobalModel::maxGuid()
++{
++  GLuint current_guid = -1;
++  glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomicGuidBuffer);
++  glGetBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint), &current_guid);
++  glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
++  return current_guid;
++}
++
++unsigned int GlobalModel::disposedGuids()
++{
++  GLuint disposed_guids = -1;
++  glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomicGuidBuffer);
++  glGetBufferSubData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), sizeof(GLuint), &disposed_guids);
++  glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
++  return disposed_guids;
++}
++
++std::vector<GLuint> GlobalModel::downloadDisposedGuids(const bool resize)
++{
++  glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
++  std::vector<GLuint> disposed_tex(DISPOSED_GUIDS_SIZE * DISPOSED_GUIDS_SIZE,5);
++  disposed_guid_store.texture->Download(disposed_tex.data(),GL_LUMINANCE,GL_FLOAT);
++  if (resize)
++    disposed_tex.resize(disposedGuids(),-1);
++  return disposed_tex;
++}
++
+ Eigen::Vector4f * GlobalModel::downloadMap()
+ {
+     glFinish();
+diff --git a/Core/src/GlobalModel.h b/Core/src/GlobalModel.h
+index 5c029e8..913ecc1 100644
+--- a/Core/src/GlobalModel.h
++++ b/Core/src/GlobalModel.h
+@@ -87,6 +87,10 @@ class GlobalModel
+ 
+         EFUSION_API unsigned int lastCount();
+ 
++        unsigned int maxGuid();
++        unsigned int disposedGuids();
++        std::vector<GLuint> downloadDisposedGuids(const bool resize);
++
+         Eigen::Vector4f * downloadMap();
+ 
+     private:
+@@ -94,6 +98,9 @@ class GlobalModel
+         std::pair<GLuint, GLuint> * vbos;
+         int target, renderSource;
+ 
++        void SetGuidSystem(std::shared_ptr<Shader> program);
++        void UnsetGuidSystem(std::shared_ptr<Shader> program);
++
+         const int bufferSize;
+ 
+         GLuint countQuery;
+@@ -121,8 +128,12 @@ class GlobalModel
+         //16 floats stored column-major yo'
+         GPUTexture deformationNodes;
+ 
++        GPUTexture disposed_guid_store;
++
+         GLuint newUnstableVbo, newUnstableFid;
+ 
++        GLuint atomicGuidBuffer;
++
+         pangolin::GlFramebuffer frameBuffer;
+         GLuint uvo;
+         int uvSize;
+diff --git a/Core/src/IndexMap.cpp b/Core/src/IndexMap.cpp
+index 8889d6e..7f7960a 100644
+--- a/Core/src/IndexMap.cpp
++++ b/Core/src/IndexMap.cpp
+@@ -76,6 +76,13 @@ IndexMap::IndexMap()
+               GL_UNSIGNED_SHORT,
+               false,
+               true),
++  guidTexture(Resolution::getInstance().width(),
++              Resolution::getInstance().height(),
++              GL_LUMINANCE32UI_EXT,
++              GL_LUMINANCE_INTEGER_EXT,
++              GL_UNSIGNED_INT,
++              false,
++              true),
+   oldRenderBuffer(Resolution::getInstance().width(), Resolution::getInstance().height()),
+   oldImageTexture(Resolution::getInstance().width(),
+                   Resolution::getInstance().height(),
+@@ -125,6 +132,7 @@ IndexMap::IndexMap()
+    combinedFrameBuffer.AttachColour(*vertexTexture.texture);
+    combinedFrameBuffer.AttachColour(*normalTexture.texture);
+    combinedFrameBuffer.AttachColour(*timeTexture.texture);
++   combinedFrameBuffer.AttachColour(*guidTexture.texture);
+    combinedFrameBuffer.AttachDepth(combinedRenderBuffer);
+ 
+    oldFrameBuffer.AttachDepth(oldRenderBuffer);
+@@ -132,6 +140,7 @@ IndexMap::IndexMap()
+    oldFrameBuffer.AttachColour(*oldVertexTexture.texture);
+    oldFrameBuffer.AttachColour(*oldNormalTexture.texture);
+    oldFrameBuffer.AttachColour(*oldTimeTexture.texture);
++   oldFrameBuffer.AttachColour(*guidTexture.texture);
+ 
+    infoFrameBuffer.AttachColour(*colorInfoTexture.texture);
+    infoFrameBuffer.AttachColour(*vertexInfoTexture.texture);
+diff --git a/Core/src/IndexMap.h b/Core/src/IndexMap.h
+index 787ff68..191856d 100644
+--- a/Core/src/IndexMap.h
++++ b/Core/src/IndexMap.h
+@@ -122,6 +122,11 @@ class IndexMap
+             return &timeTexture;
+         }
+ 
++        GPUTexture * guidTex()
++        {
++            return &guidTexture;
++        }
++
+         GPUTexture * oldImageTex()
+         {
+             return &oldImageTexture;
+@@ -185,6 +190,7 @@ class IndexMap
+         GPUTexture vertexTexture;
+         GPUTexture normalTexture;
+         GPUTexture timeTexture;
++        GPUTexture guidTexture;
+ 
+         pangolin::GlFramebuffer oldFrameBuffer;
+         pangolin::GlRenderBuffer oldRenderBuffer;

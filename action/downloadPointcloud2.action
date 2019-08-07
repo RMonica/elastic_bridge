@@ -1,0 +1,9 @@
+#goal definition
+bool stop
+---
+#result definition
+sensor_msgs/PointCloud2 pointcloud
+uint64[] guids
+uint32[] luids
+---
+#feedback

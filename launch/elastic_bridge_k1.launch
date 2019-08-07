@@ -1,0 +1,16 @@
+<launch>
+
+  <include file="$(find openni_launch)/launch/openni.launch">
+    <arg name="depth_registration" value="true" />
+  </include>
+
+  <node pkg="elastic_bridge" type="elastic_node" name="elastic_node" output="screen" >
+    <param name="AUTOSTART" type="bool" value="true" />
+    <param name="TOPIC_IMAGE_COLOR" type="string" value="/camera/rgb/image_rect_color" />
+    <param name="TOPIC_IMAGE_DEPTH" type="string" value="/camera/depth_registered/image" />
+    <param name="TOPIC_CAMERA_INFO" type="string" value="/camera/rgb/camera_info" />
+    <param name="PERIODIC_WORLD_PUBLICATION" type="int" value="90" />
+  </node>
+
+</launch>
+
