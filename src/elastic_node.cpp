@@ -486,7 +486,9 @@ public:
         m_center_y = cy;
 
         cameraInfo_sub.shutdown();
-        InitElasticFusion(m_height, m_width, fx, fy, cx, cy);
+	ROS_INFO_STREAM("here\n\n");
+        //ElasticFusion(m_height, m_width, fx, fy, cx, cy);
+	ROS_INFO_STREAM("here2\n\n");
         m_cameraInfoOK = true;
     }
 
@@ -499,7 +501,7 @@ public:
     void ImagesCallbackWorker(const sensor_msgs::ImageConstPtr& imageColor, const sensor_msgs::ImageConstPtr& imageDepth) {
         if ((m_cameraInfoOK) && (m_started)) {
 
-            //ROS_INFO("elastic_bridge: received frame %d", int(m_frame_count));
+            ROS_INFO("elastic_bridge: received frame %d", int(m_frame_count));
 
             const std::string encoding = imageDepth->encoding;
             const std::string color_encoding = imageColor->encoding;
@@ -577,36 +579,16 @@ public:
                 }
             }
 
-            //ROS_INFO("elastic_bridge: processed frame %d, point count: %d", m_frame_count, m_eFusion->getGlobalModel().lastCount());
+            ROS_INFO("elastic_bridge: processed frame %d, point count: %d", m_frame_count, m_eFusion->getGlobalModel().lastCount());
             m_frame_count++;
         }
     }
 
     void ImagesCallback(const sensor_msgs::ImageConstPtr& imageColor, const sensor_msgs::ImageConstPtr& imageDepth) {
-        boost::mutex::scoped_lock lock(m_mutex);
-        m_image_color = imageColor;
-        m_image_depth = imageDepth;
-        m_cond_var.notify_all();
-    }
-
-    void InitElasticFusion(int Height, int Width, float fx, float fy, float cx, float cy) {
-        ROS_INFO("elastic_bridge: Initializing Elastic Fusion...");
-        ROS_INFO("elastic_bridge: w %d, h %d, fx %f, fy %f, cx %f, cy %f",
-                 Width, Height, fx, fy, cx, cy);
-
-        Resolution::getInstance(Width, Height);
-        Intrinsics::getInstance(fx, fy, cx, cy);
-
-        InitFakeOpenGLContext(m_display_name);
-
-        m_guid_counter = 0;
-
-        m_eFusion = new ElasticFusion(200, 35000, 5e-05, 1e-05, !m_poseFromTFAlways);
-
-        glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
 
-        ROS_INFO("elastic_bridge: Elastic Fusion initialized.");
+        //ROS_INFO("elastic_bridge: Elastic Fusion initialized.");
+	ImagesCallbackWorker(imageColor, imageDepth);
     }
 
     void run() {
@@ -637,6 +619,12 @@ public:
 
     void init() {
         boost::mutex::scoped_lock lock(m_mutex);
+	if (m_eFusion == NULL) ROS_INFO_STREAM("HERE\n\n");
+
+	ROS_WARN_STREAM("before\n");
+	//m_eFusion = new ElasticFusion(200, 4000, 5e-05, 1e-05, false, true, true, 115, 10.0f, 3.0f, 10.0f, true, 0.3095f, true, true, "file.txt");
+	m_eFusion = new ElasticFusion;
+	ROS_WARN_STREAM("e\n");
 
         int param_int;
         std::string param_string;
@@ -644,8 +632,8 @@ public:
         m_nh.param<std::string>("TOPIC_IMAGE_COLOR", m_TopicImageColor, "/camera/rgb/image_rect_color");
         m_nh.param<std::string>("TOPIC_IMAGE_DEPTH", m_TopicImageDepth, "/camera/depth_registered/sw_registered/image_rect");
         m_nh.param<std::string>("TOPIC_CAMERA_INFO", m_TopicCameraInfo, "/camera/rgb/camera_info");
-        m_nh.param<std::string>("WORLD_FRAME", m_world_frame, "/first_frame");
-        m_nh.param<std::string>("CAMERA_FRAME", m_camera_frame, "/camera_frame");
+        m_nh.param<std::string>("WORLD_FRAME", m_world_frame, "first_frame");
+        m_nh.param<std::string>("CAMERA_FRAME", m_camera_frame, "camera_frame");
 
         m_nh.param<bool>("AUTOSTART", m_started, false);
         m_nh.param<std::string>("DISPLAY_NAME", m_display_name, ""); // empty for auto-detect current
@@ -668,8 +656,8 @@ public:
 
         m_nh.param<bool>("TF_POSE_ALWAYS", m_poseFromTFAlways, false);
         m_nh.param<bool>("TF_POSE_FIRST", m_poseFromTFFirst, false);
-        m_nh.param<std::string>("TF_INPUT_WORLD_FRAME", m_input_world_frame, "/world");
-        m_nh.param<std::string>("TF_INPUT_CAMERA_FRAME", m_input_camera_frame, "/robot");
+        m_nh.param<std::string>("TF_INPUT_WORLD_FRAME", m_input_world_frame, "world");
+        m_nh.param<std::string>("TF_INPUT_CAMERA_FRAME", m_input_camera_frame, "robot");
 
         m_nh.param<std::string>("TOPIC_SCAN_READY", param_string, "/elastic_scan_start");
         scanReady_sub = m_nh.subscribe(param_string, 1, &ElasticBridge::scanReadyCallback, this);

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
+cmake_policy(SET CMP0048 NEW)
 project(elastic_bridge)
-
 
 ###################################
 ###################################
@@ -51,16 +51,18 @@ set(CMAKE_CXX_STANDARD 11)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
 
-if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/deps/ElasticFusion/Core")
+if(NOT EXISTS "/opt/ElasticFusion/Core")
   message(WARNING "elastic_bridge: ElasticFusion not found, package won't be built.")
   return()
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_LIST_DIR}/cmake")
+set(EFUSION_INCLUDE_DIR "/opt/ElasticFusion/Core/src")
+set(EFUSION_LIBRARY "/opt/ElasticFusion/Core/build/libefusion.so")
 
 find_package(efusion REQUIRED)
 
-find_package(Pangolin REQUIRED CONFIG PATHS "${CMAKE_CURRENT_LIST_DIR}/deps/ElasticFusion/deps/Pangolin/build/src/")
+find_package(Pangolin REQUIRED CONFIG PATHS "/opt/ElasticFusion/deps/Pangolin/build/src/")
 
 find_package(ZLIB REQUIRED)
 find_package(CUDA REQUIRED)
