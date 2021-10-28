@@ -1,7 +1,7 @@
 Elastic Bridge
 ==============
 
-The `elastic_bridge` package integrates ElasticFusion by mp3guy into ROS (Robot Operating System).
+The `elastic_bridge` package integrates ElasticFusion by mp3guy into ROS (Robot Operating System) for Ubuntu 20.04.
 
 <https://github.com/mp3guy/ElasticFusion>
 
@@ -13,7 +13,7 @@ Dependencies (in addition to ElasticFusion dependencies):
 - PCL (Point Cloud Library)
 - `init_fake_opengl_context`: badly-named package to initialize a windowless OpenGL context (<https://github.com/RMonica/init_fake_opengl_context>)
 
-The package was tested on ROS Kinetic (Ubuntu 16.04) and ROS Melodic (Ubuntu 18.04).
+The package was tested on ROS Noetic (Ubuntu 20.04) with an Intel RealSense.
 
 An optional patch may be applied to the ElasticFusion source code. The patch assigns an unique identifier (GUID) to each surfel, so that single surfels can be tracked during the 3D reconstruction process. For example, you may keep track of extra properties for each surfel in an external ROS node. See "GUID patch" below for more information.
 
@@ -44,6 +44,7 @@ cd build
 cmake ../src
 make
 ```
+- Update the `EFUSION_ROOT` variable in the CMakeLists.txt file to point to the directory where ElasticFusion is.
 - Compile the package (`catkin build` is recommended instead of `catkin_make`):
 ```
 catkin build elastic_bridge
@@ -104,4 +105,4 @@ GUIDs and LUIDs are also returned by the `save_pcl` action, one for each surfel 
 
 ### Acknowledgments
 
-The original `elastic_bridge` package was written by Andrea Pagani during his bachelor thesis in Computer, Electronics and Telecommunication Engineering at University of Parma, Italy, in 2017-2018.
+The original `elastic_bridge` package was written by Andrea Pagani during his bachelor thesis in Computer, Electronics and Telecommunication Engineering at University of Parma, Italy, in 2017-2018. The updates were made by Anja Sheppard in 2021 to make it run on ROS Melodic/Ubuntu 20.04.
