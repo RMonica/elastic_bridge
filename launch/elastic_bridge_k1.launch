@@ -8,7 +8,7 @@
     <param name="initial_reset" value="true" />
   </include>
 
-  <node pkg="elastic_bridge" type="elastic_node" name="elastic_node" output="screen" launch-prefix="gdb -ex run --args" >
+  <node pkg="elastic_bridge" type="elastic_node" name="elastic_node" output="screen" >
     <param name="AUTOSTART" type="bool" value="true" />
     <param name="TOPIC_IMAGE_COLOR" type="string" value="/camera/color/image_raw" />
     <param name="TOPIC_IMAGE_DEPTH" type="string" value="/camera/depth/image_rect_raw" />
