@@ -11,6 +11,7 @@ Dependencies (in addition to ElasticFusion dependencies):
 
 - ROS (Robot Operating System)
 - PCL (Point Cloud Library)
+- Intel Realsense ROS package
 - `init_fake_opengl_context`: badly-named package to initialize a windowless OpenGL context (<https://github.com/RMonica/init_fake_opengl_context>)
 
 The package was tested on ROS Noetic (Ubuntu 20.04) with an Intel RealSense.
