@@ -93,15 +93,17 @@ Surfels can be reordered by ElasticFusion during execution. With the GUID patch,
 - A LUID (32-bit integer) identifies a surfel as long as it exists, but it can be re-assigned to new surfels if it is destroyed
 - A GUID (64-bit integer) identifies a surfel and it is never reused even if the surfel is destroyed
 
-LUIDs and GUIDs are returned in the frame state, one for each pixel in the image, in the topic as defined by parameter `TOPIC_FRAME_STATE`. The message type `FrameState.msg` contains, among other things:
+LUIDs and GUIDs are published in the frame state, one for each pixel in the image, in the topic as defined by parameter `TOPIC_FRAME_STATE`. The message type `FrameState.msg` contains, among other things:
 
 - `guid`: array of GUIDs, one for each pixel
 - `luid`: array of LUIDs, one for each pixel
 - `luid_removed`: LUIDs of the surfels destroyed in this frame, which are no longer valid and may be reused in the next frame.
 - `max_luid`: maximum currently existing LUID
 
+LUIDs are also published as a RGB image to the topic defined by parameter `TOPIC_GUID_IMAGE` (default: `/elastic_guid_image`).
+
 GUIDs and LUIDs are also returned by the `save_pcl` action, one for each surfel (see action definition `action/downloadPointcloud2.action`.
 
 ### Acknowledgments
 
-The original `elastic_bridge` package was written by Andrea Pagani during his bachelor thesis in Computer, Electronics and Telecommunication Engineering at University of Parma, Italy, in 2017-2018.
+The original `elastic_bridge` package was written by Andrea Pagani during his bachelor's thesis in Computer, Electronics and Telecommunication Engineering at University of Parma, Italy, in 2017-2018.

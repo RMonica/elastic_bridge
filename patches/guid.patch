@@ -14,7 +14,7 @@ index 7a2b0fc..6876281 100644
  {
      public:
 diff --git a/Core/src/GlobalModel.cpp b/Core/src/GlobalModel.cpp
-index 92e0b21..bb2419f 100644
+index 92e0b21..4144809 100644
 --- a/Core/src/GlobalModel.cpp
 +++ b/Core/src/GlobalModel.cpp
 @@ -23,6 +23,8 @@ const int GlobalModel::MAX_VERTICES = GlobalModel::TEXTURE_DIMENSION * GlobalMod
@@ -32,7 +32,7 @@ index 92e0b21..bb2419f 100644
     updateMapNormsRadii(TEXTURE_DIMENSION, TEXTURE_DIMENSION, GL_RGBA32F, GL_LUMINANCE, GL_FLOAT),
 -   deformationNodes(NODE_TEXTURE_DIMENSION, 1, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT)
 +   deformationNodes(NODE_TEXTURE_DIMENSION, 1, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT),
-+   disposed_guid_store(DISPOSED_GUIDS_SIZE, DISPOSED_GUIDS_SIZE, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_FLOAT)
++   disposed_guid_store(DISPOSED_GUIDS_SIZE, DISPOSED_GUIDS_SIZE, GL_LUMINANCE32F_ARB, GL_LUMINANCE, GL_UNSIGNED_INT)
  {
      vbos = new std::pair<GLuint, GLuint>[2];
  
@@ -176,7 +176,7 @@ index 92e0b21..bb2419f 100644
 +
 +std::vector<GLuint> GlobalModel::downloadDisposedGuids(const bool resize)
 +{
-+  glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
++  glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT | GL_ATOMIC_COUNTER_BARRIER_BIT);
 +  std::vector<GLuint> disposed_tex(DISPOSED_GUIDS_SIZE * DISPOSED_GUIDS_SIZE,5);
 +  disposed_guid_store.texture->Download(disposed_tex.data(),GL_LUMINANCE,GL_FLOAT);
 +  if (resize)
@@ -283,3 +283,141 @@ index 787ff68..191856d 100644
  
          pangolin::GlFramebuffer oldFrameBuffer;
          pangolin::GlRenderBuffer oldRenderBuffer;
+diff --git a/Core/src/Shaders/combo_splat.frag b/Core/src/Shaders/combo_splat.frag
+index c39d4eb..bc1047e 100644
+--- a/Core/src/Shaders/combo_splat.frag
++++ b/Core/src/Shaders/combo_splat.frag
+@@ -29,6 +29,7 @@ layout(location = 0) out vec4 image;
+ layout(location = 1) out vec4 vertex;
+ layout(location = 2) out vec4 normal;
+ layout(location = 3) out uint time;
++layout(location = 4) out uint guid;
+ 
+ #include "color.glsl"
+ 
+@@ -54,6 +55,8 @@ void main()
+     vertex = vec4((gl_FragCoord.x - cam.x) * z * (1.f / cam.z), (gl_FragCoord.y - cam.y) * z * (1.f / cam.w), z, position.w);
+     
+     normal = normRad;
++
++    guid = uint(colTime.y);
+     
+     time = uint(colTime.z);
+     
+diff --git a/Core/src/Shaders/copy_unstable.geom b/Core/src/Shaders/copy_unstable.geom
+index 7725768..541d4e1 100644
+--- a/Core/src/Shaders/copy_unstable.geom
++++ b/Core/src/Shaders/copy_unstable.geom
+@@ -17,6 +17,8 @@
+  */
+ 
+ #version 330 core
++#extension GL_ARB_shader_atomic_counters : enable
++#extension GL_ARB_shader_image_load_store : enable
+ 
+ layout(points) in;
+ layout(points, max_vertices = 1) out;
+@@ -30,6 +32,12 @@ out vec4 vPosition0;
+ out vec4 vColor0;
+ out vec4 vNormRad0;
+ 
++layout(binding = 1, offset = 0) uniform atomic_uint max_guid;
++layout(binding = 1, offset = 4) uniform atomic_uint disposed_guid_count;
++
++layout(r32ui) uniform uimage2D disposed_guid_store;
++uniform int disposed_guid_store_size;
++
+ void main() 
+ {
+     if(test[0] > 0)
+@@ -40,4 +48,18 @@ void main()
+         EmitVertex();
+         EndPrimitive(); 
+     }
++    else
++    {
++        uint guid = uint(vColor[0].y);
++        if (vColor[0].w != -1 && (guid != 0u))
++        {
++          // point is being deleted, store the guid for later
++          uint slot = atomicCounterIncrement(disposed_guid_count);
++          if (slot >= uint(disposed_guid_store_size * disposed_guid_store_size)) // out of memory
++            atomicCounterDecrement(disposed_guid_count);
++          else
++            imageStore(disposed_guid_store,
++              ivec2(int(slot) % disposed_guid_store_size, int(slot) / disposed_guid_store_size), uvec4(guid));
++        }
++    }
+ }
+diff --git a/Core/src/Shaders/data.vert b/Core/src/Shaders/data.vert
+index 8c48ed1..29de312 100644
+--- a/Core/src/Shaders/data.vert
++++ b/Core/src/Shaders/data.vert
+@@ -17,6 +17,14 @@
+  */
+ 
+ #version 330 core
++#extension GL_ARB_shader_atomic_counters : enable
++#extension GL_ARB_shader_image_load_store : enable
++
++layout(binding = 1, offset = 0) uniform atomic_uint max_guid;
++layout(binding = 1, offset = 4) uniform atomic_uint disposed_guid_count;
++
++layout(r32ui) uniform uimage2D disposed_guid_store;
++uniform int disposed_guid_store_size;
+ 
+ layout (location = 0) in vec2 texcoord;
+ 
+@@ -168,6 +176,22 @@ void main()
+ 	       //New unstable vertex
+ 	       updateId = 2;
+ 	       vColor.w = -2;
++
++         uint maybe_disposed_guid_slot = atomicCounterDecrement(disposed_guid_count);
++         uint guid;
++         if (maybe_disposed_guid_slot > (1u << 30u)) // underflow: container was empty
++         {
++           guid = atomicCounterIncrement(max_guid);
++           atomicCounterIncrement(disposed_guid_count);
++         }
++         else
++         {
++           uint slot = maybe_disposed_guid_slot;
++           guid = imageLoad(disposed_guid_store,
++                            ivec2(int(slot) % disposed_guid_store_size, int(slot) / disposed_guid_store_size)).x;
++         }
++
++         vColor.y = float(guid);
+ 	    }
+     }
+ 
+diff --git a/Core/src/Shaders/init_unstable.vert b/Core/src/Shaders/init_unstable.vert
+index fd2ed65..3a8878f 100644
+--- a/Core/src/Shaders/init_unstable.vert
++++ b/Core/src/Shaders/init_unstable.vert
+@@ -17,6 +17,7 @@
+  */
+ 
+ #version 330 core
++#extension GL_ARB_shader_atomic_counters : enable
+ 
+ layout (location = 0) in vec4 vPosition;
+ layout (location = 1) in vec4 vColor;
+@@ -26,11 +27,16 @@ out vec4 vPosition0;
+ out vec4 vColor0;
+ out vec4 vNormRad0;
+ 
++layout(binding = 1, offset = 0) uniform atomic_uint max_guid;
++layout(binding = 1, offset = 4) uniform atomic_uint disposed_guid_count;
++
+ void main()
+ {
++    uint guid = atomicCounterIncrement(max_guid);
++
+     vPosition0 = vPosition;
+     vColor0 = vColor;
+-    vColor0.y = 0; //Unused
++    vColor0.y = float(guid); // GUID
+     vColor0.z = 1; //This sets the vertex's initialisation time
+     vNormRad0 = vNormRad;
+ }

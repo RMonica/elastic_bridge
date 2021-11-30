@@ -118,7 +118,7 @@ private:
 
     ros::NodeHandle m_nh;
     ros::Subscriber cameraInfo_sub, scanReady_sub, scanFinish_sub;
-    ros::Publisher m_periodic_cloud_pub, m_image_pub;
+    ros::Publisher m_periodic_cloud_pub, m_image_pub, m_guid_image_pub;
     ros::Publisher m_frame_state_stable_pub;
     tf::TransformBroadcaster m_trasformBroadcaster;
     tf::TransformListener m_trasformListener;
@@ -301,8 +301,32 @@ public:
           m_image_pub.publish(image_msg);
         }
 
+#ifdef ELASTIC_BRIDGE_EXTENSION_GUID
         // scope only
         {
+          sensor_msgs::Image image_msg;
+          image_msg.height = m_height;
+          image_msg.width = m_width;
+          image_msg.encoding = "rgba8";
+          image_msg.is_bigendian = false;
+          image_msg.step = image_msg.width * 4;
+          image_msg.data.resize(n_pixel * 4);
+          for (int y = 0; y < m_height; y++)
+              for (int x = 0; x < m_width; x++) {
+                  const int i = y * m_width + x;
+
+                  image_msg.data[i * 4 + 0] = (guid_vec[i] >>  0) % 256;
+                  image_msg.data[i * 4 + 1] = (guid_vec[i] >>  8) % 256;
+                  image_msg.data[i * 4 + 2] = (guid_vec[i] >> 16) % 256;
+                  image_msg.data[i * 4 + 3] = (guid_vec[i] >> 24) % 256;
+              }
+
+          m_guid_image_pub.publish(image_msg);
+        }
+#endif
+
+        // scope only
+        { 
             for (uint64 i = 0; i < guid_vec.size(); i++) {
                 const uint32 internal_guid = guid_vec[i];
                 if (!internal_guid)
@@ -368,6 +392,16 @@ public:
     }
 
     sensor_msgs::PointCloud2ConstPtr getPC2(Uint64Vector * guids = NULL,Uint32Vector * luids = NULL) {
+
+        if (!m_eFusion) {
+          sensor_msgs::PointCloud2Ptr pointCloud2ptr(new sensor_msgs::PointCloud2);
+          pcl::PointCloud<pcl::PointSurfel> pcl_cloud;
+          pcl::toROSMsg(pcl_cloud, *pointCloud2ptr);
+          pointCloud2ptr->header.frame_id = m_world_frame;
+          ROS_INFO("elastic_bridge: elastic fusion not initialized, returning empty surfel cloud.");
+          return pointCloud2ptr;
+        }
+
         Eigen::Vector4f * mapData = m_eFusion->getGlobalModel().downloadMap();
 
         const uint64 last_count = m_eFusion->getGlobalModel().lastCount();
@@ -663,6 +697,11 @@ public:
 
         m_nh.param<std::string>("TOPIC_CURRENT_VIEW", param_string, "/elastic_current_view");
         m_image_pub = m_nh.advertise<sensor_msgs::Image>(param_string, 1);
+
+        #ifdef ELASTIC_BRIDGE_EXTENSION_GUID
+          m_nh.param<std::string>("TOPIC_GUID_IMAGE", param_string, "/elastic_guid_image");
+          m_guid_image_pub = m_nh.advertise<sensor_msgs::Image>(param_string, 1);
+        #endif
 
         cameraInfo_sub = m_nh.subscribe(m_TopicCameraInfo, 1, &ElasticBridge::cameraInfoCallback, this);
 
